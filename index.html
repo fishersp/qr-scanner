@@ -4,40 +4,34 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>QR Сканер</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, sans-serif;
     background: #111; color: #fff;
     min-height: 100vh; display: flex; flex-direction: column;
-    /* безопасные зоны iPhone (notch, home bar) */
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
-
   #camera-wrap {
-    position: relative;
-    width: 100%; max-width: 480px;
-    margin: 0 auto;
-  }
-  #video {
-    width: 100%; display: block;
+    position: relative; width: 100%; max-width: 480px; margin: 0 auto;
     background: #000;
-    max-height: 38vh; object-fit: cover;
   }
-
+  video {
+    width: 100%; display: block;
+    max-height: 40vh; object-fit: cover;
+  }
   .finder {
     position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     width: 190px; height: 190px;
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+    pointer-events: none;
   }
   .finder::before, .finder::after,
   .finder-bl::before, .finder-bl::after {
-    content: '';
-    position: absolute;
+    content: ''; position: absolute;
     width: 26px; height: 26px;
     border-color: #4caf50; border-style: solid;
   }
@@ -45,92 +39,70 @@
   .finder::after     { top:-2px;    right:-2px; border-width:3px 3px 0 0; border-radius:0 8px 0 0; }
   .finder-bl::before { bottom:-2px; left:-2px;  border-width:0 0 3px 3px; border-radius:0 0 0 8px; }
   .finder-bl::after  { bottom:-2px; right:-2px; border-width:0 3px 3px 0; border-radius:0 0 8px 0; }
-
   #flash {
     position: absolute; top:0; left:0; width:100%; height:100%;
-    background: rgba(76,175,80,0.3);
-    opacity: 0; transition: opacity 0.1s; pointer-events: none;
+    background: rgba(76,175,80,0.35);
+    opacity: 0; transition: opacity 0.08s; pointer-events: none;
   }
   #flash.show { opacity: 1; }
-
   #status {
-    text-align: center;
-    padding: 7px 12px;
-    font-size: 13px; color: #777;
-    min-height: 30px; background: #111;
+    text-align: center; padding: 8px 12px;
+    font-size: 13px; color: #777; min-height: 32px;
   }
   #status.ok  { color: #4caf50; }
   #status.dup { color: #ff9800; }
-  #status.err { color: #f44336; }
-
+  #status.err { color: #f44336; font-size: 12px; }
   #results-wrap {
     flex: 1; max-width: 480px; width: 100%;
-    margin: 0 auto;
-    display: flex; flex-direction: column;
+    margin: 0 auto; display: flex; flex-direction: column;
     padding: 0 12px 8px;
   }
   #results-header {
     display: flex; align-items: center;
-    justify-content: space-between;
-    padding: 8px 0 6px;
+    justify-content: space-between; padding: 6px 0;
   }
   #count { font-size: 13px; color: #666; }
-  #ios-hint { font-size: 11px; color: #444; display: none; }
-
   #pairs-box {
     flex: 1; width: 100%;
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
-    border-radius: 10px;
-    padding: 12px;
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 10px; padding: 12px;
     font-family: 'Courier New', monospace;
     font-size: 15px; color: #e0e0e0;
     resize: none; outline: none;
-    min-height: 160px; line-height: 1.8;
-    /* на iOS readonly textarea не даёт выделить — убираем readonly, ставим через JS */
-    -webkit-user-select: text;
-    user-select: text;
+    min-height: 150px; line-height: 1.8;
+    -webkit-user-select: text; user-select: text;
   }
   #pairs-box::placeholder { color: #444; font-size: 13px; }
-
   #toolbar {
     max-width: 480px; width: 100%;
-    margin: 0 auto;
-    padding: 8px 12px 16px;
-    display: flex; gap: 8px;
+    margin: 0 auto; padding: 8px 12px 20px; display: flex; gap: 8px;
   }
   button {
-    flex: 1; padding: 14px 8px;
-    border: none; border-radius: 10px;
-    font-size: 15px; font-weight: 600;
-    cursor: pointer;
+    flex: 1; padding: 14px 8px; border: none; border-radius: 10px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
   #btn-copy  { background: #2e7d32; color: #fff; }
   #btn-clear { background: #1e1e1e; color: #f44336; border: 1px solid #333; }
   #btn-copy:active  { background: #1b5e20; }
   #btn-clear:active { opacity: 0.7; }
-
-  canvas { display: none; }
 </style>
 </head>
 <body>
 
 <div id="camera-wrap">
   <video id="video" autoplay playsinline muted></video>
-  <canvas id="overlay"></canvas>
   <div class="finder"><div class="finder-bl"></div></div>
   <div id="flash"></div>
 </div>
 
-<div id="status">Наведите камеру на QR-код</div>
+<div id="status">Инициализация камеры...</div>
 
 <div id="results-wrap">
   <div id="results-header">
     <span id="count">0 пар</span>
-    <span id="ios-hint">удерживайте текст → Выбрать всё → Скопировать</span>
   </div>
-  <textarea id="pairs-box" placeholder="Здесь появятся пары:&#10;*BfBmCxOJ 25508055827&#10;*BfBmCxGB 25508055825&#10;..."></textarea>
+  <textarea id="pairs-box" placeholder="Здесь появятся пары:&#10;*BfBmCxOJ 25508055827&#10;..."></textarea>
 </div>
 
 <div id="toolbar">
@@ -139,7 +111,6 @@
 </div>
 
 <script>
-// ── декодер (аналог Python-скрипта) ──────────────────────────
 function qrToNumber(code) {
   code = code.trim();
   if (code.startsWith('*')) code = code.slice(1);
@@ -151,19 +122,9 @@ function qrToNumber(code) {
   return (v >> 8n).toString();
 }
 
-// ── определяем iOS ────────────────────────────────────────────
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-if (isIOS) {
-  // на iOS подсказываем как копировать вручную если API не сработает
-  document.getElementById('ios-hint').style.display = 'block';
-}
-
-// ── элементы ──────────────────────────────────────────────────
-const video    = document.getElementById('video');
-const canvas   = document.getElementById('overlay');
-const ctx      = canvas.getContext('2d');
 const statusEl = document.getElementById('status');
 const pairsBox = document.getElementById('pairs-box');
 const countEl  = document.getElementById('count');
@@ -173,78 +134,36 @@ let pairs    = [];
 let lastRaw  = '';
 let lastTime = 0;
 
-// ── камера ────────────────────────────────────────────────────
-async function startCamera() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-        width:  { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    });
-    video.srcObject = stream;
-    video.addEventListener('loadedmetadata', () => {
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
-      requestAnimationFrame(scan);
-    });
-  } catch(e) {
-    statusEl.textContent = 'Нет доступа к камере: ' + e.message;
-    statusEl.className = 'err';
-  }
-}
-
-// ── сканирование ──────────────────────────────────────────────
-function scan() {
-  if (video.readyState === video.HAVE_ENOUGH_DATA) {
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-    if (code) {
-      const raw = code.data.trim();
-      const now = Date.now();
-      if (raw !== lastRaw || now - lastTime > 2000) {
-        lastRaw  = raw;
-        lastTime = now;
-        handleCode(raw);
-      }
-    }
-  }
-  requestAnimationFrame(scan);
-}
-
-// ── обработка кода ────────────────────────────────────────────
 function handleCode(raw) {
+  raw = raw.trim();
   let number;
   try { number = qrToNumber(raw); }
-  catch(e) { return; } // не наш формат
+  catch(e) { return; }
 
   flashEl.classList.add('show');
-  setTimeout(() => flashEl.classList.remove('show'), 120);
+  setTimeout(() => flashEl.classList.remove('show'), 100);
+
+  const now = Date.now();
+  if (raw === lastRaw && now - lastTime < 2000) return;
+  lastRaw  = raw;
+  lastTime = now;
 
   if (pairs.some(p => p.raw === raw)) {
     statusEl.className = 'dup';
     statusEl.textContent = '⚠️ Уже есть: ' + number;
   } else {
     pairs.push({ raw, number });
-    renderPairs();
+    pairsBox.value = pairs.map(p => p.raw + ' ' + p.number).join('\n');
+    pairsBox.scrollTop = pairsBox.scrollHeight;
+    const n = pairs.length;
+    countEl.textContent = n + ' ' + plural(n, 'пара', 'пары', 'пар');
     statusEl.className = 'ok';
     statusEl.textContent = '✓ ' + raw + '  ' + number;
   }
-
   setTimeout(() => {
     statusEl.className = '';
     statusEl.textContent = 'Наведите камеру на QR-код';
   }, 1800);
-}
-
-// ── отрисовка ─────────────────────────────────────────────────
-function renderPairs() {
-  pairsBox.value = pairs.map(p => p.raw + ' ' + p.number).join('\n');
-  pairsBox.scrollTop = pairsBox.scrollHeight;
-  const n = pairs.length;
-  countEl.textContent = n + ' ' + plural(n, 'пара', 'пары', 'пар');
 }
 
 function plural(n, one, few, many) {
@@ -254,40 +173,27 @@ function plural(n, one, few, many) {
   return many;
 }
 
-// ── копирование (с iOS fallback) ──────────────────────────────
 function copyAll() {
   if (!pairs.length) return;
   const text = pairs.map(p => p.raw + ' ' + p.number).join('\n');
   const btn  = document.getElementById('btn-copy');
-
-  // современный API (работает на HTTPS и Android)
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text)
       .then(() => showCopied(btn))
-      .catch(() => iosFallbackCopy(text, btn));
+      .catch(() => fallbackCopy(text, btn));
   } else {
-    iosFallbackCopy(text, btn);
+    fallbackCopy(text, btn);
   }
 }
 
-function iosFallbackCopy(text, btn) {
-  // iOS Safari fallback: выделяем всё в textarea и execCommand
-  pairsBox.contentEditable = true;
+function fallbackCopy(text, btn) {
   pairsBox.readOnly = false;
   pairsBox.focus();
-  pairsBox.select();
-  // на iOS select() не всегда работает, используем setSelectionRange
   pairsBox.setSelectionRange(0, pairsBox.value.length);
   const ok = document.execCommand('copy');
-  pairsBox.contentEditable = false;
   pairsBox.readOnly = false;
-  if (ok) {
-    showCopied(btn);
-  } else {
-    // совсем старый iOS — просто выделяем, пользователь копирует сам
-    btn.textContent = '👆 Выбрать всё → скопировать';
-    setTimeout(() => btn.textContent = '📋 Скопировать все', 3000);
-  }
+  ok ? showCopied(btn) : (btn.textContent = '👆 Выделите и скопируйте');
+  setTimeout(() => btn.textContent = '📋 Скопировать все', 2500);
 }
 
 function showCopied(btn) {
@@ -295,7 +201,6 @@ function showCopied(btn) {
   setTimeout(() => btn.textContent = '📋 Скопировать все', 1800);
 }
 
-// ── очистка ───────────────────────────────────────────────────
 function clearAll() {
   if (!pairs.length) return;
   if (confirm('Очистить все ' + pairs.length + ' пар?')) {
@@ -305,7 +210,50 @@ function clearAll() {
   }
 }
 
-startCamera();
+// ── ZXing сканер ─────────────────────────────────────────────
+async function startScanner() {
+  try {
+    const ZXing   = window.ZXing;
+    const hints   = new Map();
+    const formats = [ZXing.BarcodeFormat.QR_CODE];
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+
+    const reader = new ZXing.BrowserQRCodeReader(hints);
+
+    // получаем список камер
+    const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+    // на телефоне берём заднюю камеру (последняя в списке или та что содержит 'back'/'environment')
+    let deviceId = devices[0]?.deviceId;
+    for (const d of devices) {
+      if (/back|rear|environment/i.test(d.label)) {
+        deviceId = d.deviceId;
+        break;
+      }
+      // на iOS задняя обычно последняя
+      deviceId = d.deviceId;
+    }
+
+    statusEl.textContent = 'Наведите камеру на QR-код';
+
+    reader.decodeFromVideoDevice(deviceId, 'video', (result, err) => {
+      if (result) handleCode(result.getText());
+    });
+
+  } catch(e) {
+    statusEl.className = 'err';
+    statusEl.textContent = 'Ошибка камеры: ' + e.message;
+  }
+}
+
+// ждём загрузки ZXing
+function waitAndStart() {
+  if (window.ZXing) {
+    startScanner();
+  } else {
+    setTimeout(waitAndStart, 100);
+  }
+}
+waitAndStart();
 </script>
 </body>
 </html>
