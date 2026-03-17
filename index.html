@@ -3,8 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>QR Сканер</title>
-<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
+<title>QR Сканер v3</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -15,13 +14,10 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
   #camera-wrap {
-    position: relative; width: 100%; max-width: 480px; margin: 0 auto;
-    background: #000;
+    position: relative; width: 100%; max-width: 480px;
+    margin: 0 auto; background: #000;
   }
-  video {
-    width: 100%; display: block;
-    max-height: 40vh; object-fit: cover;
-  }
+  video { width: 100%; display: block; max-height: 40vh; object-fit: cover; }
   .finder {
     position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -50%);
@@ -31,8 +27,7 @@
   }
   .finder::before, .finder::after,
   .finder-bl::before, .finder-bl::after {
-    content: ''; position: absolute;
-    width: 26px; height: 26px;
+    content: ''; position: absolute; width: 26px; height: 26px;
     border-color: #4caf50; border-style: solid;
   }
   .finder::before    { top:-2px;    left:-2px;  border-width:3px 0 0 3px; border-radius:8px 0 0 0; }
@@ -47,7 +42,7 @@
   #flash.show { opacity: 1; }
   #status {
     text-align: center; padding: 8px 12px;
-    font-size: 13px; color: #777; min-height: 32px;
+    font-size: 13px; color: #777; min-height: 32px; line-height: 1.4;
   }
   #status.ok  { color: #4caf50; }
   #status.dup { color: #ff9800; }
@@ -96,12 +91,10 @@
   <div id="flash"></div>
 </div>
 
-<div id="status">Инициализация камеры...</div>
+<div id="status">Запуск камеры...</div>
 
 <div id="results-wrap">
-  <div id="results-header">
-    <span id="count">0 пар</span>
-  </div>
+  <div id="results-header"><span id="count">0 пар</span></div>
   <textarea id="pairs-box" placeholder="Здесь появятся пары:&#10;*BfBmCxOJ 25508055827&#10;..."></textarea>
 </div>
 
@@ -111,6 +104,7 @@
 </div>
 
 <script>
+// ── декодер ───────────────────────────────────────────────────
 function qrToNumber(code) {
   code = code.trim();
   if (code.startsWith('*')) code = code.slice(1);
@@ -122,31 +116,98 @@ function qrToNumber(code) {
   return (v >> 8n).toString();
 }
 
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
 const statusEl = document.getElementById('status');
 const pairsBox = document.getElementById('pairs-box');
 const countEl  = document.getElementById('count');
 const flashEl  = document.getElementById('flash');
+const video    = document.getElementById('video');
 
 let pairs    = [];
 let lastRaw  = '';
 let lastTime = 0;
+let animId   = null;
+
+// ── jsQR через CDN (грузим динамически) ───────────────────────
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// ── запуск камеры напрямую через getUserMedia + jsQR ─────────
+async function startCamera() {
+  try {
+    await loadScript('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js');
+  } catch(e) {
+    try {
+      await loadScript('https://unpkg.com/jsqr@1.4.0/dist/jsQR.js');
+    } catch(e2) {
+      statusEl.className = 'err';
+      statusEl.textContent = 'Не удалось загрузить библиотеку сканера';
+      return;
+    }
+  }
+
+  let stream;
+  try {
+    // сначала пробуем заднюю камеру
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { exact: 'environment' } }
+    });
+  } catch(e) {
+    try {
+      // fallback — любая камера
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    } catch(e2) {
+      statusEl.className = 'err';
+      statusEl.textContent = 'Нет доступа к камере: ' + e2.message;
+      return;
+    }
+  }
+
+  video.srcObject = stream;
+  await new Promise(r => video.addEventListener('loadedmetadata', r, { once: true }));
+  await video.play();
+
+  statusEl.textContent = 'Наведите камеру на QR-код';
+
+  // canvas для захвата кадров
+  const canvas = document.createElement('canvas');
+  const ctx    = canvas.getContext('2d');
+
+  function tick() {
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(img.data, img.width, img.height, {
+        inversionAttempts: 'dontInvert'
+      });
+      if (code) handleCode(code.data);
+    }
+    animId = requestAnimationFrame(tick);
+  }
+  animId = requestAnimationFrame(tick);
+}
 
 function handleCode(raw) {
-  raw = raw.trim();
+  raw = (raw || '').trim();
+  if (!raw) return;
+
   let number;
   try { number = qrToNumber(raw); }
   catch(e) { return; }
-
-  flashEl.classList.add('show');
-  setTimeout(() => flashEl.classList.remove('show'), 100);
 
   const now = Date.now();
   if (raw === lastRaw && now - lastTime < 2000) return;
   lastRaw  = raw;
   lastTime = now;
+
+  flashEl.classList.add('show');
+  setTimeout(() => flashEl.classList.remove('show'), 100);
 
   if (pairs.some(p => p.raw === raw)) {
     statusEl.className = 'dup';
@@ -187,12 +248,9 @@ function copyAll() {
 }
 
 function fallbackCopy(text, btn) {
-  pairsBox.readOnly = false;
   pairsBox.focus();
   pairsBox.setSelectionRange(0, pairsBox.value.length);
-  const ok = document.execCommand('copy');
-  pairsBox.readOnly = false;
-  ok ? showCopied(btn) : (btn.textContent = '👆 Выделите и скопируйте');
+  document.execCommand('copy') ? showCopied(btn) : (btn.textContent = '👆 Выделите вручную');
   setTimeout(() => btn.textContent = '📋 Скопировать все', 2500);
 }
 
@@ -210,50 +268,7 @@ function clearAll() {
   }
 }
 
-// ── ZXing сканер ─────────────────────────────────────────────
-async function startScanner() {
-  try {
-    const ZXing   = window.ZXing;
-    const hints   = new Map();
-    const formats = [ZXing.BarcodeFormat.QR_CODE];
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-
-    const reader = new ZXing.BrowserQRCodeReader(hints);
-
-    // получаем список камер
-    const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-    // на телефоне берём заднюю камеру (последняя в списке или та что содержит 'back'/'environment')
-    let deviceId = devices[0]?.deviceId;
-    for (const d of devices) {
-      if (/back|rear|environment/i.test(d.label)) {
-        deviceId = d.deviceId;
-        break;
-      }
-      // на iOS задняя обычно последняя
-      deviceId = d.deviceId;
-    }
-
-    statusEl.textContent = 'Наведите камеру на QR-код';
-
-    reader.decodeFromVideoDevice(deviceId, 'video', (result, err) => {
-      if (result) handleCode(result.getText());
-    });
-
-  } catch(e) {
-    statusEl.className = 'err';
-    statusEl.textContent = 'Ошибка камеры: ' + e.message;
-  }
-}
-
-// ждём загрузки ZXing
-function waitAndStart() {
-  if (window.ZXing) {
-    startScanner();
-  } else {
-    setTimeout(waitAndStart, 100);
-  }
-}
-waitAndStart();
+startCamera();
 </script>
 </body>
 </html>
